@@ -1,0 +1,190 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>LX Music · 网页版（精简版）</title>
+<meta name="description" content="洛雪音乐桌面版的精简网页版：搜索、播放、歌单、歌词与自定义音源，跑在 Cloudflare Pages + Worker 上。">
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+<header class="topbar">
+  <div class="brand">♪ LX Music <span class="brand-sub">网页版 · 精简版</span></div>
+  <div class="searchbar">
+    <select id="sourceSelect" aria-label="平台">
+      <option value="all">全部平台</option>
+      <option value="netease">网易云</option>
+      <option value="tencent">QQ 音乐</option>
+      <option value="kuwo">酷我</option>
+      <option value="kugou">酷狗</option>
+      <option value="migu">咪咕</option>
+    </select>
+    <input id="keyword" type="search" placeholder="搜歌名 / 歌手，Enter 搜索" autocomplete="off">
+    <button id="searchBtn" type="button">搜索</button>
+    <select id="qualitySelect" aria-label="音质">
+      <option value="320">320k</option>
+      <option value="128">128k</option>
+      <option value="flac">无损 FLAC</option>
+    </select>
+  </div>
+</header>
+
+<div class="layout">
+  <nav class="sidebar">
+    <button class="nav-btn active" data-view="search" type="button">🔍 搜索结果</button>
+    <button class="nav-btn" data-view="charts" type="button">📊 榜单</button>
+    <button class="nav-btn" data-view="discover" type="button">✨ 发现</button>
+    <button class="nav-btn" data-view="queue" type="button">🎵 播放队列 <span id="queueCount"></span></button>
+    <button class="nav-btn" data-view="favorites" type="button">⭐ 我的收藏</button>
+    <button class="nav-btn" data-view="playlists" type="button">📁 我的歌单</button>
+    <button class="nav-btn" data-view="local" type="button">💾 本地音乐</button>
+    <button class="nav-btn" data-view="sources" type="button">🧩 音源管理</button>
+    <button class="nav-btn" data-view="about" type="button">ℹ️ 关于 / 局限</button>
+    <p class="side-note">已补：榜单、发现、歌单导入、多歌单、本地音乐、主题、倍速/定时、全屏与弹出歌词、下载（带歌名直存）、音源检测。做不了的在“关于 / 局限”里列明。</p>
+  </nav>
+
+  <main class="main">
+    <section id="view-search" class="view">
+      <div id="status" class="status">输入歌名搜索。QQ / 酷我 / 酷狗 / 咪咕走 Worker 内置适配器，网易云走默认上游；播放地址走自定义音源脚本。</div>
+      <ol id="resultList" class="song-list"></ol>
+    </section>
+
+    <section id="view-charts" class="view hidden">
+      <div class="row-head"><h2>榜单</h2><div class="chart-controls"><select id="chartPlatform"><option value="tencent">QQ 音乐</option><option value="netease">网易云</option><option value="kuwo">酷我</option></select><select id="chartSelect"></select><button id="loadChartBtn" type="button">加载榜单</button></div></div>
+      <div id="chartStatus" class="status"></div>
+      <ol id="chartList" class="song-list"></ol>
+    </section>
+
+    <section id="view-discover" class="view hidden">
+      <div class="row-head"><h2>发现</h2><div class="chart-controls"><select id="discoverPlatform"><option value="tencent">QQ 音乐</option><option value="netease">网易云</option><option value="kuwo">酷我</option></select><button id="loadDiscoverBtn" type="button">加载</button></div></div>
+      <div id="discoverStatus" class="status"></div>
+      <div id="discoverBody"></div>
+    </section>
+
+    <section id="view-playlists" class="view hidden">
+      <div class="row-head"><h2>我的歌单</h2><span class="hint">存在本浏览器 localStorage 里，不同步到服务器。</span></div>
+      <div class="add-source">
+        <input id="newPlaylistName" type="text" placeholder="新歌单名字">
+        <button id="createPlaylistBtn" type="button">新建歌单</button>
+        <button id="exportPlaylistsBtn" type="button">导出全部歌单 JSON</button>
+        <label class="file-label">导入 JSON <input id="importPlaylistsFile" type="file" accept="application/json,.json" hidden></label>
+      </div>
+      <div class="add-source">
+        <select id="activePlaylistSelect" aria-label="当前歌单"></select>
+        <button id="addResultsToPlaylistBtn" type="button">搜索结果全部加入</button>
+        <button id="addQueueToPlaylistBtn" type="button">播放队列全部加入</button>
+        <button id="playPlaylistBtn" type="button">播放该歌单</button>
+        <button id="deletePlaylistBtn" type="button">删除该歌单</button>
+      </div>
+      <ol id="playlistSongs" class="song-list"></ol>
+      <h3>播放历史</h3>
+      <ol id="historyList" class="song-list"></ol>
+    </section>
+
+    <section id="view-local" class="view hidden">
+      <div class="row-head"><h2>本地音乐</h2><span class="hint">文件存在本浏览器 IndexedDB 里，不上传服务器；清浏览器数据会丢。</span></div>
+      <div class="add-source">
+        <label class="file-label">选择音频文件 <input id="localFiles" type="file" accept="audio/*,.flac,.mp3,.m4a,.ogg,.wav,.opus" multiple hidden></label>
+        <button id="playAllLocalBtn" type="button">全部播放</button>
+        <button id="clearLocalBtn" type="button">清空本地库</button>
+      </div>
+      <div id="localStatus" class="status"></div>
+      <ol id="localList" class="song-list"></ol>
+    </section>
+
+    <section id="view-queue" class="view hidden">
+      <div class="row-head"><h2>播放队列</h2><button id="clearQueueBtn" type="button">清空队列</button></div>
+      <ol id="queueList" class="song-list"></ol>
+    </section>
+
+    <section id="view-favorites" class="view hidden">
+      <div class="row-head"><h2>我的收藏</h2><span class="hint">存在本浏览器 localStorage 里，换浏览器不会同步。</span></div>
+      <ol id="favList" class="song-list"></ol>
+    </section>
+
+    <section id="view-sources" class="view hidden">
+      <h2>自定义音源（洛雪 .js 脚本）</h2>
+      <p class="hint">脚本只用来解析播放地址，在隔离 Worker 里运行、网络请求经同源 <code>/proxy-fetch</code> 转发。脚本仍可在 Worker 内执行任意计算，只添加信任来源的脚本。顺序即尝试顺序：排前面的先试。</p>
+      <div class="add-source">
+        <input id="newSourceUrl" type="url" placeholder="粘贴音源脚本地址 https://…/*.js">
+        <button id="addSourceBtn" type="button">添加并验证</button>
+        <button id="resetSourcesBtn" type="button">恢复默认 15 条</button>
+        <button id="testAllSourcesBtn" type="button">全部检测（QQ 探针）</button>
+      </div>
+      <div id="sourceStatus" class="status"></div>
+      <ol id="sourceList" class="source-list"></ol>
+    </section>
+
+    <section id="view-about" class="view hidden">
+      <h2>关于这个精简版</h2>
+      <p>来源：<a href="https://github.com/lovesummersky/lx-music-desktop" target="_blank" rel="noopener">lovesummersky/lx-music-desktop</a>（上游 lyswhut/lx-music-desktop，v2.12.6，Electron + Vue 3）。桌面版原样跑不到 Worker 上：它依赖 Electron IPC、主进程 SQLite、隐藏窗口脚本沙箱和 Node 网络/文件能力。</p>
+      <p>这个精简版不是逐行移植：前端是新写的单页播放器；Worker 层复用了已实测的搜索适配器（QQ / 酷我 / 酷狗 / 咪咕按洛雪内置思路重写）与脚本代理（<code>/proxy</code>、<code>/proxy-fetch</code>、<code>/proxy-source</code>），播放地址解析复用洛雪脚本隔离 Worker 的做法。已补齐的桌面功能：榜单、发现、外部歌单导入、多歌单管理、播放历史、本地音乐（浏览器 IndexedDB）、主题切换、倍速、睡眠定时、全屏歌词、弹出歌词窗、浏览器下载、音源检测。</p>
+      <p>Worker 上确实做不了的：系统托盘、全局快捷键、开机自启、Scheme URL、本地 Open API 服务、服务端磁盘下载、跨设备数据同步（无服务端存储）、桌面歌词窗常驻置顶（可用弹出歌词窗代替）、本地文件夹自动扫描（只能手动选文件）。这些要走服务器部署（常驻 Node + 磁盘）才能做。</p>
+      <ul>
+        <li>搜索：5 个平台；网易云搜索 / 歌词 / 封面仍走默认 GD 上游，GD 波动时会失败。</li>
+        <li>试听片段保护：解析出的地址先看元数据时长，不到歌曲全长七成判为片段，自动换下一个音源；全部是片段则跳下一首。元数据拿不到时长时无法判断。</li>
+        <li>跨平台代播：QQ 只有片段时，会试一次同名同歌手的酷我 / 网易云完整版，提示后播放，播放列表本身不改。</li>
+        <li>没有：数据同步、桌面歌词窗、托盘、快捷键、账号登录。本地歌曲与浏览器下载已补齐：下载走 Worker 流式中转（<code>/download</code>，仅放行音乐 CDN 域名），直接保存为“歌手 - 歌名”文件名，不落盘。</li>
+        <li>免费额度：Worker 免费档每请求 10ms CPU、每天 10 万次请求；重签名 / 大解析可能超时，属平台限制。</li>
+      </ul>
+    </section>
+
+      <div class="row-head"><h2>外部歌单导入</h2><span class="hint">只接 QQ / 酷狗 / 酷我公开歌单，咪咕暂未接入。</span></div>
+      <div class="add-source">
+        <select id="importPlatform"><option value="tencent">QQ 音乐</option><option value="kugou">酷狗</option><option value="kuwo">酷我</option></select>
+        <input id="importId" type="text" placeholder="歌单 id 或歌单链接（含数字 id）">
+        <button id="importBtn" type="button">导入为歌单</button>
+      </div>
+      <div id="importStatus" class="status"></div>
+    </section>
+
+    <aside id="lyricsPanel" class="lyrics hidden">
+      <div class="row-head"><h2 id="lyricTitle">歌词</h2><button id="closeLyricsBtn" type="button">关闭</button></div>
+      <div id="lyricsBody" class="lyrics-body"><div class="hint">暂无歌词</div></div>
+    </aside>
+  </main>
+</div>
+
+<footer class="player">
+  <div class="now">
+    <div id="cover" class="cover">♪</div>
+    <div class="now-meta">
+      <div id="nowTitle" class="now-title">未在播放</div>
+      <div id="nowArtist" class="now-artist"></div>
+      <div id="nowNote" class="now-note"></div>
+    </div>
+  </div>
+  <div class="controls">
+    <button id="prevBtn" type="button" title="上一首">⏮</button>
+    <button id="playBtn" type="button" title="播放 / 暂停">▶</button>
+    <button id="nextBtn" type="button" title="下一首">⏭</button>
+    <button id="modeBtn" type="button" title="播放模式：顺序">🔁 顺序</button>
+    <button id="lyricsBtn" type="button" title="歌词">📜 歌词</button>
+    <button id="fullLyricBtn" type="button" title="全屏歌词">🖥 全屏歌词</button>
+    <button id="popLyricBtn" type="button" title="弹出歌词窗">🪟 弹出歌词窗</button>
+    <button id="favBtn" type="button" title="收藏当前歌曲">☆ 收藏</button>
+    <button id="downloadBtn" type="button" title="下载当前歌曲到本机浏览器">⬇ 下载</button>
+    <select id="rateSelect" aria-label="倍速"><option value="1">1.0x</option><option value="1.25">1.25x</option><option value="1.5">1.5x</option><option value="2">2.0x</option><option value="0.75">0.75x</option></select>
+    <select id="sleepSelect" aria-label="睡眠定时"><option value="0">不定时</option><option value="15">15 分钟后停</option><option value="30">30 分钟后停</option><option value="60">60 分钟后停</option></select>
+    <button id="themeBtn" type="button" title="切换深浅色">🌗 主题</button>
+    <a id="audioLink" class="audio-link" href="#" target="_blank" rel="noopener" hidden>打开音频地址 ↗</a>
+  </div>
+  <div class="progress">
+    <span id="curTime">00:00</span>
+    <input id="seek" type="range" min="0" max="1000" value="0" aria-label="进度">
+    <span id="totalTime">00:00</span>
+    <label class="vol">音量 <input id="volume" type="range" min="0" max="100" value="80" aria-label="音量"></label>
+  </div>
+  <audio id="audio" preload="metadata"></audio>
+</footer>
+
+<div id="lyricOverlay" class="lyric-overlay hidden">
+  <button id="closeOverlayBtn" type="button">✕ 关闭</button>
+  <div id="overlayTitle" class="overlay-title"></div>
+  <div id="overlayLine" class="overlay-line">—</div>
+  <div id="overlayList" class="overlay-list"></div>
+</div>
+
+<script src="app.js"></script>
+</body>
+</html>
